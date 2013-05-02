@@ -8,44 +8,29 @@ const Gio = imports.gi.Gio;
 const Shell = imports.gi.Shell;
 const Meta = imports.gi.Meta;
 const Params = imports.misc.params;
+const Lang = imports.lang;
+const IconGrid = imports.ui.iconGrid;
 
 const St = imports.gi.St;
 
 var windowSearchProvider = null;
 
-function WindowSearchProvider() {
-    this._init();
-}
+const WindowSearchIcon = new Lang.Class({
+    Name: 'WindowSearchIcon',
 
-WindowSearchProvider.prototype = {
-    __proto__: Search.SearchProvider.prototype,
-
-    _init: function() {
-        Search.SearchProvider.prototype._init.call(this, _('Windows'));
+    _init: function(win, name) {
+        this._win = win;
+        this.actor = new St.Bin({ reactive: true,
+                                  track_hover: true });
+        this.icon = new IconGrid.BaseIcon(name,
+                                          { showLabel: true,
+                                            createIcon: Lang.bind(this, this.createIcon) } );
+        this.actor.child = this.icon.actor;
+        this.actor.label_actor = this.icon.label;
     },
 
-    getResultMetas: function(resultIds) {
-        let metas = [];
-        for (let i = 0; i < resultIds.length; i++) {	    
-            metas.push(this.getResultMeta(resultIds[i]));
-        }
-        return metas;
-    },
-
-    getResultMeta: function(win) {
-	let tracker = Shell.WindowTracker.get_default();
-        let self = this;
-	let app = tracker.get_window_app(win);
-        return { 'id': win,
-                 'name': app.get_name() + ' - ' + win.get_title(),
-                 'createIcon': function(size) {
-		                  return self._getThumbnail(win,size);
-                               }
-               };
-    },
-
-    _getThumbnail: function(win,size){
-	let mutterWindow = win.get_compositor_private();
+    createIcon: function (size) {
+	let mutterWindow = this._win.get_compositor_private();
 	if (!mutterWindow)
 	    return null;
 
@@ -68,7 +53,7 @@ WindowSearchProvider.prototype = {
 
 	// add appicon
         let tracker = Shell.WindowTracker.get_default();
-	let app = tracker.get_window_app(win);
+	let app = tracker.get_window_app(this._win);
 	let icon = app.create_icon_texture(size/3);
 	let iconbin = new St.Bin();
 	iconbin.set_opacity(200);
@@ -77,6 +62,33 @@ WindowSearchProvider.prototype = {
 	group.add_actor(iconbin);
 
 	return group;
+    }
+
+});
+
+const WindowSearchProvider = new Lang.Class({
+    Name: 'WindowSearchProvider',
+
+    _init: function() {
+        this.id = 'windowSearch';
+    },
+
+    getResultMetas: function(ids, callback) {
+        let metas = ids.map(this.getResultMeta, this);
+        callback(metas);
+    },
+
+    getResultMeta: function(win) {
+	let tracker = Shell.WindowTracker.get_default();
+	let app = tracker.get_window_app(win);
+        return { 'id': win,
+                 'name': app.get_name() + ' - ' + win.get_title()
+               };
+    },
+
+    createResultActor: function(result, terms) {
+        let icon = new WindowSearchIcon(result.id, result.name);
+        return icon.actor;
     },
 
     _matchTerms: function(wins, terms){
@@ -104,11 +116,13 @@ WindowSearchProvider.prototype = {
 				     screen.get_workspace_by_index(i)));
 	}
 
-	return this._matchTerms(windows, terms);
+        let results = this._matchTerms(windows, terms);
+        this.searchSystem.pushResults(this, results);
     },
 
     getSubsearchResultSet: function(previousResults, terms) {
-        return this._matchTerms(previousResults, terms);
+        let results = this._matchTerms(previousResults, terms);
+        this.searchSystem.pushResults(this, results);
     },
 
     activateResult: function(win, params) {
@@ -119,7 +133,7 @@ WindowSearchProvider.prototype = {
         tracker.get_window_app(win).activate_window(win, global.get_current_time());
     },
 
-};
+});
 
 function init(meta) {
 }
